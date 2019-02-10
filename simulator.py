@@ -22,9 +22,10 @@ class battery:
         return
         
     def do_charge(self,supply,time,energy,interval):
-        """Charge battery with <energy> kWh over <interval> minutes
+        """Charge battery with <energy> Wh over <interval> minutes
         Draws from supply to charge up
         Returns amount of energy consumed"""
+        energy=energy/1000.0
         if self.charge+energy < self.capacity:
             increase=energy
         else:
@@ -93,7 +94,7 @@ class supply:
         return (time.time() >= self.cheap_start and time.time() < self.cheap_end)
     
     def get_bill_period(self,bill_start,bill_end):
-        bill=0
+        bill=energy_used=0
         detail=[]
         days={}
         start=False
@@ -111,6 +112,7 @@ class supply:
             else:
                 if time>end: end=time
             bill+=cost
+            energy_used+=energy
             detail.append([time,tariff,energy,cost])
             date=time.date()
             if date in days:
@@ -119,7 +121,7 @@ class supply:
                 days[date]=cost
         header="From {} to {}".format(start,end)
         bill=round(bill,2)
-        return [header,bill,detail,days]
+        return [header,bill,energy_used,detail,days]
 
     def get_bill(self):
         """returns:
@@ -133,7 +135,7 @@ class supply:
     
     
 class battery_control:
-    def decision(self,time,interval,demand):
+    def decision(self,time,interval,demand,solar):
         """
         Apply relevant control logic to the demand/time.
 
@@ -141,24 +143,40 @@ class battery_control:
         
         """
         demand=demand/1000.0
-        return self.logic(time,interval,demand)
+        return self.logic(time,interval,demand,solar)
 
-    def no_action(self,time,interval,demand):
+    def no_action(self,time,interval,demand,solar):
         return False
 
-    def economy7_charger(self,time,interval,demand):
-        if self.supply.cheap_time(time):
-            amount=self.battery.do_charge(self.supply,time,99999,interval)
+    def economy7_charger(self,time,interval,demand,solar):
+        if self.grid_supply.cheap_time(time):
+            amount=self.battery.do_charge(self.grid_supply,time,99999,interval)
             return "Charge by %skWh" % amount
             
         if demand>0:
-            amount=self.battery.do_discharge(self.supply,time,demand)
+            amount=self.battery.do_discharge(self.grid_supply,time,demand)
             return "Discharge %skWh" % amount
     
-    def __init__(self,battery,supply,control_type="None"):
+    def solar_econ7_charger(self,time,interval,demand,solar):
+        if self.grid_supply.cheap_time(time):
+            amount=self.battery.do_charge(self.grid_supply,time,99999,interval)
+            return "Charge by %skWh" % amount
+            
+        if demand>0:
+            amount=self.battery.do_discharge(self.grid_supply,time,demand)
+            return "Discharge %skWh" % amount
+
+        if solar>0:
+            amount=self.battery.do_charge(self.solar_supply,time,solar,interval)
+            return "Charge from Solar %skWh" % amount
+    
+    def __init__(self,battery,grid_supply,solar_supply,control_type="None"):
         self.battery=battery
-        self.supply=supply
+        self.grid_supply=grid_supply
+        self.solar_supply=solar_supply
         self.logic=self.no_action
         if control_type == "Econ7":
             self.logic=self.economy7_charger
+        if control_type == "Econ7Solar":
+            self.logic=self.solar_econ7_charger    
         
